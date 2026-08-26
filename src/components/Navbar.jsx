@@ -105,7 +105,7 @@ export default function Navbar() {
 
         {/* DESKTOP RESUME BUTTON */}
         <motion.a
-          href="/resume.pdf"
+          href="/portfolio.pdf"
           download
           className="hidden lg:inline-block relative group"
           whileHover={{ scale: 1.03 }}
@@ -225,7 +225,7 @@ export default function Navbar() {
                 transition={{ delay: 0.4 }}
               >
                 <a
-                  href="/resume.pdf"
+                  href="/portfolio.pdf"
                   download
                   className="
                     flex
