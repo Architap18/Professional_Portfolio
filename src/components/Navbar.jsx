@@ -148,7 +148,7 @@ export default function Navbar() {
             "
           >
             Resume
-            <TbDownload size={17} />
+            <TbDownload size={20} />
           </span>
         </motion.a>
 
@@ -226,7 +226,7 @@ export default function Navbar() {
               >
                 <a
                   href="/assets/Portfolio.pdf"
-                  download
+                  download="Archita_Pal_Resume.pdf"
                   className="
                     flex
                     items-center
@@ -240,7 +240,7 @@ export default function Navbar() {
                   "
                 >
                   Resume
-                  <TbDownload size={18} />
+                  <TbDownload size={20} />
                 </a>
               </motion.li>
             </ul>
