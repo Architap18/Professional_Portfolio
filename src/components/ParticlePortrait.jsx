@@ -1,10 +1,7 @@
 import { useEffect, useRef } from "react";
 import "./ParticlePortrait.css";
 
-// darkest -> lightest. Dense chars = dark pixels, sparse chars = light pixels.
-const RAMP = "@%#*+=-:. ";
-
-export default function ParticlePortrait({ image = "/assets/profile.png" }) {
+export default function ParticlePortrait({ image = "/assets/profile.jpg" }) {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
 
@@ -15,15 +12,19 @@ export default function ParticlePortrait({ image = "/assets/profile.png" }) {
 
     let width, height;
     let particles = [];
-    const mouse = { x: -999, y: -999 };
 
-    // ---- settings you can tweak ----
-    const CELL = 8;              // spacing between characters (grid size)
-    const COLOR = "197, 145, 74"; // amber, as "r, g, b"
-    const GRAVITY = 0.3;
-    const EASE = 0.08;
-    const MOUSE_RADIUS = 70;
-    const MOUSE_PUSH = 6;
+    // Raw mouse position — instant
+    const mouse = { x: -9999, y: -9999 };
+    // Smoothly interpolated scanner lens position — glides elegantly
+    const lens = { x: -9999, y: -9999 };
+    let lensVisible = false;
+
+    const CELL        = 3.5;
+    const COLOR       = "255, 255, 255";
+    const GRAVITY     = 0.35;
+    const EASE        = 0.1;
+    const LENS_RADIUS = 72;   // Scanner lens radius in px
+    const LENS_LERP   = 0.14; // Smooth glide factor (0 = frozen, 1 = instant)
 
     const img = new Image();
     img.src = image;
@@ -31,10 +32,10 @@ export default function ParticlePortrait({ image = "/assets/profile.png" }) {
 
     function setup() {
       const rect = container.getBoundingClientRect();
-      width = canvas.width = rect.width;
+      width  = canvas.width  = rect.width;
       height = canvas.height = rect.height;
 
-      const w = Math.min(width * 0.8, 420);
+      const w = Math.min(width * 0.85, 450);
       const h = w * (img.height / img.width);
       const hidden = document.createElement("canvas");
       hidden.width = w;
@@ -43,72 +44,112 @@ export default function ParticlePortrait({ image = "/assets/profile.png" }) {
       hctx.drawImage(img, 0, 0, w, h);
       const pixels = hctx.getImageData(0, 0, w, h).data;
 
-      const offsetX = width / 2 - w / 2;
+      const offsetX = width  / 2 - w / 2;
       const offsetY = height / 2 - h / 2;
 
       particles = [];
 
       for (let y = 0; y < h; y += CELL) {
         for (let x = 0; x < w; x += CELL) {
-          const i = (y * w + x) * 4;
-          const alpha = pixels[i + 3];
-          if (alpha < 128) continue; // transparent = removed background
+          const i = (Math.floor(y) * w + Math.floor(x)) * 4;
+          const r = pixels[i], g = pixels[i + 1], b = pixels[i + 2], a = pixels[i + 3];
 
-          const brightness = (pixels[i] + pixels[i + 1] + pixels[i + 2]) / 3;
+          if (a < 30) continue;
 
-          // pick a character by brightness — darker pixel = denser char
-          const charIndex = Math.floor((brightness / 255) * (RAMP.length - 1));
-          const char = RAMP[charIndex];
-          if (char === " ") continue; // skip near-white pixels entirely
+          const brightness = r * 0.299 + g * 0.587 + b * 0.114;
+          if (brightness < 18) continue;
 
-          const targetX = offsetX + x;
-          const targetY = offsetY + y;
+          const normLum     = Math.min(1, Math.max(0, (brightness - 18) / 237));
+          const targetX     = offsetX + x;
+          const targetY     = offsetY + y;
+          const baseOpacity = Math.min(1, 0.4 + normLum * 0.6);
+          const pixelSize   = Math.max(1.8, CELL * 0.85 * (0.6 + normLum * 0.4));
 
           particles.push({
-            x: targetX + (Math.random() - 0.5) * 100,
+            x: targetX + (Math.random() - 0.5) * 60,
             y: -Math.random() * height,
             targetX,
             targetY,
             vy: 0,
-            char,
+            size: pixelSize,
+            baseOpacity,
+            currentOpacity: baseOpacity,
           });
         }
       }
     }
 
+    function drawScannerRing() {
+      if (!lensVisible) return;
+
+      ctx.save();
+
+      // Outer soft glow halo
+      const grad = ctx.createRadialGradient(
+        lens.x, lens.y, LENS_RADIUS - 12,
+        lens.x, lens.y, LENS_RADIUS + 16
+      );
+      grad.addColorStop(0,    "rgba(255,255,255,0.00)");
+      grad.addColorStop(0.35, "rgba(255,255,255,0.22)");
+      grad.addColorStop(0.65, "rgba(255,255,255,0.10)");
+      grad.addColorStop(1,    "rgba(255,255,255,0.00)");
+
+      ctx.beginPath();
+      ctx.arc(lens.x, lens.y, LENS_RADIUS + 16, 0, Math.PI * 2);
+      ctx.fillStyle = grad;
+      ctx.fill();
+
+      // Crisp white ring stroke
+      ctx.beginPath();
+      ctx.arc(lens.x, lens.y, LENS_RADIUS, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(255,255,255,0.5)";
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+
+      ctx.restore();
+    }
+
     function animate() {
       ctx.clearRect(0, 0, width, height);
-      ctx.font = `${CELL}px monospace`;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillStyle = `rgba(${COLOR}, 0.9)`;
+
+      // Smoothly glide the scanner lens toward the raw mouse
+      if (lensVisible) {
+        lens.x += (mouse.x - lens.x) * LENS_LERP;
+        lens.y += (mouse.y - lens.y) * LENS_LERP;
+      }
 
       for (const p of particles) {
-        const dx = p.targetX - p.x;
-        const dy = p.targetY - p.y;
+        // Physics: fast settle — NO cursor position shifting ever
+        const dx   = p.targetX - p.x;
+        const dy   = p.targetY - p.y;
         const dist = Math.hypot(dx, dy);
 
-        if (dist > 4) {
+        if (dist > 2) {
           p.vy += GRAVITY;
-          p.x += dx * EASE * 0.3;
-          p.y += p.vy * 0.2 + dy * EASE * 0.3;
-          p.vy *= 0.9;
+          p.x  += dx * EASE * 0.4;
+          p.y  += p.vy * 0.2 + dy * EASE * 0.4;
+          p.vy *= 0.85;
         } else {
           p.x += dx * EASE;
           p.y += dy * EASE;
         }
 
-        const mdx = p.x - mouse.x;
-        const mdy = p.y - mouse.y;
-        const mdist = Math.hypot(mdx, mdy);
-        if (mdist < MOUSE_RADIUS) {
-          const force = (MOUSE_RADIUS - mdist) / MOUSE_RADIUS;
-          p.x += (mdx / mdist) * force * MOUSE_PUSH;
-          p.y += (mdy / mdist) * force * MOUSE_PUSH;
+        // Smooth cosine lens fade: center = transparent, edge = full brightness
+        const mdist = Math.hypot(p.targetX - lens.x, p.targetY - lens.y);
+        if (lensVisible && mdist < LENS_RADIUS) {
+          const t    = mdist / LENS_RADIUS;
+          const fade = (1 - Math.cos(t * Math.PI)) / 2;
+          p.currentOpacity = p.baseOpacity * fade;
+        } else {
+          p.currentOpacity = p.baseOpacity;
         }
 
-        ctx.fillText(p.char, p.x, p.y);
+        ctx.fillStyle = `rgba(${COLOR}, ${p.currentOpacity})`;
+        ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
       }
+
+      // Draw scanner ring on top of pixels
+      drawScannerRing();
 
       requestAnimationFrame(animate);
     }
@@ -117,10 +158,17 @@ export default function ParticlePortrait({ image = "/assets/profile.png" }) {
       const rect = canvas.getBoundingClientRect();
       mouse.x = e.clientX - rect.left;
       mouse.y = e.clientY - rect.top;
+      if (!lensVisible) {
+        // Snap to cursor on first enter so it doesn't slide in from off-screen
+        lens.x = mouse.x;
+        lens.y = mouse.y;
+        lensVisible = true;
+      }
     }
     function onMouseLeave() {
-      mouse.x = -999;
-      mouse.y = -999;
+      lensVisible = false;
+      mouse.x = -9999;
+      mouse.y = -9999;
     }
 
     window.addEventListener("resize", setup);
